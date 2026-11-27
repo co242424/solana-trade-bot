@@ -1,10 +1,60 @@
 {
-  "TOKEN_MINT": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
-  "PRICE_UNIT": "USDC",
-  "BUY_PRICE": 0.2,
-  "TAKE_PROFIT_PCT": 20,
-  "STOP_LOSS_PCT": 10,
-  "MAX_POSITION_SOL": 0.01,
-  "POLL_INTERVAL_SEC": 15,
-  "SLIPPAGE_BPS": 100
+  "strategy": "grid",
+  "market": "spot",
+  "timeframe": "1h",
+  "pollIntervalSec": 30,
+  "spot": {
+    "tokenMint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+    "candleSymbol": "JUPUSDT",
+    "positionSizeSol": 0.01,
+    "slippageBps": 100
+  },
+  "perps": {
+    "asset": "SOL",
+    "collateralUsd": 10,
+    "leverage": 2,
+    "allowShort": true,
+    "slippageBps": 200
+  },
+  "risk": {
+    "takeProfitPct": 0,
+    "stopLossPct": 10,
+    "maxTradesPerDay": 20,
+    "cooldownSec": 60
+  },
+  "params": {
+    "grid": {
+      "levels": 16,
+      "lookbackCandles": 720,
+      "padPct": 5,
+      "slotSizeSol": 0.005,
+      "rerange": true
+    },
+    "ma_cross": {
+      "fast": 20,
+      "slow": 50
+    },
+    "rsi": {
+      "period": 14,
+      "lower": 30,
+      "upper": 70
+    },
+    "bollinger": {
+      "n": 20,
+      "k": 2
+    },
+    "donchian": {
+      "n": 20,
+      "exit": 10
+    },
+    "dca": {
+      "intervalHours": 168,
+      "amountSol": 0.005,
+      "maxBuys": 10
+    },
+    "price_trigger": {
+      "buyPrice": 0.2,
+      "priceUnit": "USDC"
+    }
+  }
 }

@@ -1,5 +1,4 @@
 import { config as loadEnv } from "dotenv";
-import fs from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,22 +20,21 @@ export const DEFAULT_BLOCK_ENGINE_URL =
 /** Keyless public Jupiter endpoint. Set JUPITER_API_URL + JUPITER_API_KEY to use api.jup.ag. */
 export const DEFAULT_JUPITER_URL = "https://lite-api.jup.ag/swap/v1";
 
-export type PriceUnit = "SOL" | "USDC";
+/** Hard limits for perps that no setting can raise. */
+export const HARD_MAX_LEVERAGE = 3;
+export const HARD_MAX_PERP_COLLATERAL_USD = 100;
+/** Jupiter Perps rejects new positions with less than $10 collateral. */
+export const JUPITER_MIN_PERP_COLLATERAL_USD = 10;
+export const DEFAULT_PERPS_API_URL = "https://perps-api.jup.ag/v2";
+
 export type SendVia = "jito" | "rpc";
 
 export interface Config {
   dryRun: boolean;
+  /** Default token for the one-shot swap CLI. The bot uses spot.tokenMint from strategy.json. */
   tokenMint: string;
-  priceUnit: PriceUnit;
-  /** Buy when the executable price is at or below this (in priceUnit per 1 token). */
-  buyPrice: number | undefined;
-  takeProfitPct: number;
-  stopLossPct: number;
-  maxPositionSol: number;
-  pollIntervalSec: number;
+  /** Default slippage for the swap CLI; the bot overrides it from strategy.json. */
   slippageBps: number;
-  cooldownSecAfterSell: number;
-  maxTrades: number;
   maxConsecutiveErrors: number;
   rpcUrl: string;
   keypairPath: string | undefined;
@@ -49,29 +47,18 @@ export interface Config {
   minSolReserve: number;
   jupiterUrl: string;
   jupiterApiKey: string | undefined;
+  /** Perps safety caps (env only, so the dashboard cannot raise them). */
+  maxLeverage: number;
+  maxPerpCollateralUsd: number;
+  /** Live perps need BOTH DRY_RUN=false and ENABLE_LIVE_PERPS=true. */
+  enableLivePerps: boolean;
+  perpsApiUrl: string;
+  dashboardPort: number;
 }
 
 type Raw = Record<string, unknown>;
 
-function readStrategyFile(): Raw {
-  const path = resolve(
-    PROJECT_ROOT,
-    process.env.STRATEGY_FILE?.trim() || "strategy.json",
-  );
-  if (!fs.existsSync(path)) return {};
-  try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(path, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      throw new Error("top level must be a JSON object");
-    }
-    return parsed as Raw;
-  } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`Cannot read strategy file ${path}: ${reason}`);
-  }
-}
-
-/** Env var wins over strategy.json, which wins over the built-in default. */
+/** Env var wins over the built-in default. (Strategy settings live in strategy.json, see strategyConfig.ts.) */
 function pick(file: Raw, name: string): string | undefined {
   const fromEnv = process.env[name]?.trim();
   if (fromEnv) return fromEnv;
@@ -107,12 +94,8 @@ function bool(file: Raw, name: string, def: boolean): boolean {
 }
 
 export function loadConfig(): Config {
-  const file = readStrategyFile();
+  const file: Raw = {};
 
-  const priceUnit = (pick(file, "PRICE_UNIT") ?? "USDC").toUpperCase();
-  if (priceUnit !== "SOL" && priceUnit !== "USDC") {
-    throw new Error(`PRICE_UNIT must be SOL or USDC, got "${priceUnit}"`);
-  }
   const sendVia = (pick(file, "SEND_VIA") ?? "jito").toLowerCase();
   if (sendVia !== "jito" && sendVia !== "rpc") {
     throw new Error(`SEND_VIA must be jito or rpc, got "${sendVia}"`);
@@ -122,15 +105,7 @@ export function loadConfig(): Config {
     // Safe default: anything other than an explicit "false" keeps dry-run on.
     dryRun: bool(file, "DRY_RUN", true),
     tokenMint: pick(file, "TOKEN_MINT") ?? "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
-    priceUnit,
-    buyPrice: num(file, "BUY_PRICE", undefined, 0),
-    takeProfitPct: num(file, "TAKE_PROFIT_PCT", 20, 0.01)!,
-    stopLossPct: num(file, "STOP_LOSS_PCT", 10, 0.01, 99)!,
-    maxPositionSol: num(file, "MAX_POSITION_SOL", 0.01, 0.000001, 100)!,
-    pollIntervalSec: num(file, "POLL_INTERVAL_SEC", 15, 5)!,
     slippageBps: num(file, "SLIPPAGE_BPS", 100, 1, 5000)!,
-    cooldownSecAfterSell: num(file, "COOLDOWN_SEC_AFTER_SELL", 60, 0)!,
-    maxTrades: num(file, "MAX_TRADES", 10, 1)!,
     maxConsecutiveErrors: num(file, "MAX_CONSECUTIVE_ERRORS", 5, 1)!,
     rpcUrl: pick(file, "RPC_URL") ?? "https://api.mainnet-beta.solana.com",
     keypairPath: pick(file, "KEYPAIR_PATH"),
@@ -143,6 +118,17 @@ export function loadConfig(): Config {
     minSolReserve: num(file, "MIN_SOL_RESERVE", 0.003, 0)!,
     jupiterUrl: (pick(file, "JUPITER_API_URL") ?? DEFAULT_JUPITER_URL).replace(/\/$/, ""),
     jupiterApiKey: pick(file, "JUPITER_API_KEY"),
+    maxLeverage: num({}, "MAX_LEVERAGE", 2, 1, HARD_MAX_LEVERAGE)!,
+    maxPerpCollateralUsd: num(
+      {},
+      "MAX_PERP_COLLATERAL_USD",
+      15,
+      JUPITER_MIN_PERP_COLLATERAL_USD,
+      HARD_MAX_PERP_COLLATERAL_USD,
+    )!,
+    enableLivePerps: bool({}, "ENABLE_LIVE_PERPS", false),
+    perpsApiUrl: (process.env.PERPS_API_URL?.trim() || DEFAULT_PERPS_API_URL).replace(/\/$/, ""),
+    dashboardPort: num({}, "DASHBOARD_PORT", 8787, 1024, 65535)!,
   };
 }
 
@@ -150,18 +136,13 @@ export function loadConfig(): Config {
 export function describeConfig(cfg: Config): Record<string, unknown> {
   return {
     dryRun: cfg.dryRun,
-    tokenMint: cfg.tokenMint,
-    priceUnit: cfg.priceUnit,
-    buyPrice: cfg.buyPrice,
-    takeProfitPct: cfg.takeProfitPct,
-    stopLossPct: cfg.stopLossPct,
-    maxPositionSol: cfg.maxPositionSol,
-    pollIntervalSec: cfg.pollIntervalSec,
-    slippageBps: cfg.slippageBps,
     sendVia: cfg.sendVia,
     fallbackToRpc: cfg.fallbackToRpc,
     jitoTipLamports: cfg.jitoTipLamports,
     hasJitoUuid: Boolean(cfg.jitoUuid),
     hasKeypair: Boolean(cfg.keypairPath),
+    maxLeverage: cfg.maxLeverage,
+    maxPerpCollateralUsd: cfg.maxPerpCollateralUsd,
+    enableLivePerps: cfg.enableLivePerps,
   };
 }

@@ -11,3 +11,7 @@ state/
 !package-lock.json
 !tsconfig.json
 !strategy.example.json
+
+# Backtest cache
+backtest/data/
+backtest/output/

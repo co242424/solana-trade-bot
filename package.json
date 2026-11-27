@@ -1,7 +1,7 @@
 {
   "name": "solana-trade-bot",
-  "version": "0.1.0",
-  "description": "Small, honest Solana auto buy/sell bot: Jupiter quotes and swaps, optional Jito landing, dry-run by default",
+  "version": "0.2.0",
+  "description": "Solana trading bot: pluggable strategies (grid, MA, RSI, Bollinger, Donchian, DCA, price trigger) on Jupiter spot, Jupiter Perps with hard caps, local dashboard, backtests. Dry-run by default.",
   "type": "module",
   "engines": {
     "node": ">=20"
@@ -9,8 +9,12 @@
   "scripts": {
     "check": "tsc --noEmit",
     "test": "node --import tsx --test test/*.test.ts",
+    "bot": "node --import tsx src/bot.ts",
+    "dashboard": "node --import tsx src/dashboard/server.ts",
     "swap": "node --import tsx src/swap.ts",
-    "bot": "node --import tsx src/bot.ts"
+    "perps": "node --import tsx src/perpsCli.ts",
+    "kill": "node --import tsx src/kill.ts",
+    "backtest": "node --import tsx backtest/run.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.4",
