@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>solana-trade-bot dashboard</title>
+<style>
+[hidden] { display: none !important; }
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ee; --muted:#8a92a6; --green:#3ecf8e; --red:#ff6b6b; --amber:#f5b84b; --blue:#6aa9ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0 8px 0 0; }
+  .badge { padding:3px 9px; border-radius:999px; font-size:12px; font-weight:600; border:1px solid var(--line); }
+  .dry { color:var(--blue); border-color:var(--blue); } .live { color:var(--red); border-color:var(--red); }
+  .on { color:var(--green); border-color:var(--green); } .off { color:var(--muted); } .killed { color:#fff; background:var(--red); border-color:var(--red); }
+  main { display:grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap:16px; padding:16px 20px 40px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; min-width:0; }
+  section h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  .wide { grid-column: 1 / -1; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:500; }
+  td.num, th.num { text-align:right; font-variant-numeric: tabular-nums; }
+  .pos { color:var(--green); } .neg { color:var(--red); }
+  .kv { display:grid; grid-template-columns: 150px 1fr; gap:4px 10px; }
+  .kv div:nth-child(odd) { color:var(--muted); }
+  button { background:#232838; color:var(--text); border:1px solid var(--line); border-radius:7px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--blue); }
+  button.primary { background:#1f3b2e; border-color:var(--green); }
+  button.danger { background:#4a1f24; border-color:var(--red); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  form .field { display:grid; grid-template-columns: 1fr 160px; gap:8px; align-items:center; margin:4px 0; }
+  form .field label { color:var(--muted); font-size:13px; }
+  input, select { background:#0f1218; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 7px; font:inherit; width:100%; }
+  fieldset { border:1px solid var(--line); border-radius:8px; margin:10px 0; padding:6px 10px 10px; }
+  legend { color:var(--muted); font-size:12px; padding:0 6px; }
+  .msg { margin-top:8px; font-size:13px; white-space:pre-wrap; }
+  .msg.err { color:var(--red); } .msg.ok { color:var(--green); }
+  pre { background:#0f1218; border:1px solid var(--line); border-radius:8px; padding:10px; overflow:auto; max-height:380px; font-size:12px; white-space:pre-wrap; }
+  .scroll { overflow:auto; max-height:420px; }
+  .muted { color:var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>solana-trade-bot</h1>
+  <span id="mode" class="badge">mode</span>
+  <span id="running" class="badge">-</span>
+  <span id="killed" class="badge" hidden>KILLED</span>
+  <span class="muted" id="updated"></span>
+</header>
+<main>
+  <section>
+    <h2>Status</h2>
+    <div class="kv" id="statusKv"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btnStart">Start</button>
+      <button id="btnStop">Stop</button>
+      <button class="danger" id="btnKill" title="Stop, close every open position, and block restarts">Kill switch</button>
+      <button id="btnReset">Reset kill</button>
+    </div>
+    <div class="msg" id="ctlMsg"></div>
+  </section>
+
+  <section>
+    <h2>Positions and PnL</h2>
+    <div class="kv" id="pnlKv"></div>
+    <div id="positions" style="margin-top:10px"></div>
+  </section>
+
+  <section>
+    <h2>Strategy</h2>
+    <form id="stratForm" autocomplete="off"></form>
+    <div class="row">
+      <button id="btnValidate" type="button">Validate</button>
+      <button id="btnSave" type="button" class="primary">Save</button>
+      <span class="muted" id="capsInfo"></span>
+    </div>
+    <div class="msg" id="stratMsg"></div>
+  </section>
+
+  <section>
+    <h2>Backtest</h2>
+    <div class="muted" style="margin-bottom:8px">Runs the selected strategy with the parameters in the form on real Binance candles (0.1% fee + 0.1% slippage per side).</div>
+    <form id="btForm" autocomplete="off">
+      <div class="field"><label>Symbol</label><input name="symbol" value="SOLUSDT"></div>
+      <div class="field"><label>Interval</label><select name="interval"><option>15m</option><option selected>1h</option><option>4h</option><option>1d</option></select></div>
+      <div class="field"><label>Days</label><input name="days" type="number" value="365" min="7" max="400"></div>
+      <div class="field"><label>Allow shorts</label><select name="allowShort"><option value="false">no</option><option value="true">yes</option></select></div>
+    </form>
+    <button id="btnBacktest" type="button">Run backtest</button>
+    <div class="msg" id="btMsg"></div>
+    <div id="btResult"></div>
+  </section>
+
+  <section class="wide">
+    <h2>Trade log</h2>
+    <div class="scroll"><table id="trades"><thead><tr>
+      <th>Time (UTC)</th><th>Mode</th><th>Market</th><th>Strategy</th><th>Action</th><th>Side</th><th>Instrument</th>
+      <th class="num">Price</th><th>Size</th><th class="num">PnL</th><th>Reason</th><th>Tx</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="wide">
+    <h2>Backtest summary (from the research run)</h2>
+    <pre id="summary">loading...</pre>
+  </section>
+</main>
+
+<script>
+"use strict";
+const TOKEN = "__DASHBOARD_TOKEN__";
+const $ = (id) => document.getElementById(id);
+let specs = [];
+let caps = {};
+let lastStatus = null;
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json", "X-Dashboard-Token": TOKEN },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const type = res.headers.get("content-type") || "";
+  const data = type.includes("application/json") ? await res.json() : await res.text();
+  if (!res.ok) {
+    const msg = data && data.errors ? data.errors.join("\n") : data && data.error ? data.error : String(data);
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function el(tag, attrs = {}, text) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") e.className = v; else e.setAttribute(k, v);
+  }
+  if (text !== undefined) e.textContent = String(text);
+  return e;
+}
+function fmt(n, d = 4) {
+  if (n === null || n === undefined || Number.isNaN(n)) return "-";
+  if (n === Infinity) return "inf";
+  const a = Math.abs(n);
+  return a !== 0 && (a < Math.pow(10, -d) || a >= 1e9) ? Number(n).toExponential(3) : Number(n).toFixed(d);
+}
+function kv(container, pairs) {
+  container.replaceChildren();
+  for (const [k, v, cls] of pairs) {
+    container.append(el("div", {}, k));
+    container.append(el("div", cls ? { class: cls } : {}, v));
+  }
+}
+function signed(n) { return n > 0 ? "pos" : n < 0 ? "neg" : ""; }
+function setMsg(id, text, ok) {
+  const m = $(id); m.textContent = text; m.className = "msg " + (ok ? "ok" : "err");
+}
+
+function renderStatus(s) {
+  lastStatus = s;
+  const mode = $("mode");
+  mode.textContent = s.mode === "live" ? "LIVE" : "DRY RUN";
+  mode.className = "badge " + (s.mode === "live" ? "live" : "dry");
+  const r = $("running");
+  r.textContent = s.running ? "running" : "stopped";
+  r.className = "badge " + (s.running ? "on" : "off");
+  const k = $("killed");
+  k.hidden = !s.killed; k.className = "badge killed";
+  $("updated").textContent = "updated " + new Date().toLocaleTimeString();
+  kv($("statusKv"), [
+    ["Strategy", s.strategy + " on " + s.market],
+    ["Started", s.startedAt || "-"],
+    ["Last tick", s.lastTickAt || "-"],
+    ["Last decision", s.lastDecision || "-"],
+    ["Last error", s.lastError || "none", s.lastError ? "neg" : ""],
+    ["Entries today", String(s.tradesToday)],
+    ["Max leverage cap", String(s.config.maxLeverage) + "x"],
+    ["Max perp collateral", "$" + s.config.maxPerpCollateralUsd],
+    ["Live perps enabled", String(s.config.enableLivePerps)],
+    ["Send via", s.config.sendVia],
+  ]);
+  $("btnStart").disabled = s.running || s.killed;
+  $("btnStop").disabled = !s.running;
+  $("btnReset").disabled = !s.killed;
+
+  const p = s.positions;
+  let unrealSol = 0, unrealUsd = 0;
+  const box = $("positions");
+  box.replaceChildren();
+  const table = el("table");
+  const head = el("tr");
+  ["Type", "Details", "Entry", "Mark", "Unrealized"].forEach((h, i) => head.append(el("th", i >= 2 ? { class: "num" } : {}, h)));
+  table.append(head);
+  const add = (type, details, entry, mark, pnl, unit) => {
+    const tr = el("tr");
+    tr.append(el("td", {}, type), el("td", {}, details), el("td", { class: "num" }, fmt(entry, 6)), el("td", { class: "num" }, fmt(mark, 6)));
+    tr.append(el("td", { class: "num " + signed(pnl) }, pnl === undefined ? "-" : fmt(pnl, 4) + " " + unit));
+    table.append(tr);
+  };
+  if (p.spot) {
+    const pnl = p.spot.markPriceSol ? (p.spot.markPriceSol - p.spot.entryPriceSol) * p.spot.tokens : undefined;
+    if (pnl) unrealSol += pnl;
+    add("Spot", fmt(p.spot.tokens, 4) + " tokens (" + p.spot.mint.slice(0, 6) + "...)", p.spot.entryPriceSol, p.spot.markPriceSol, pnl, "SOL");
+  }
+  if (p.grid) {
+    add("Grid", p.grid.symbol + " " + fmt(p.grid.lo, 4) + "-" + fmt(p.grid.hi, 4) + ", " + p.grid.holdingSlots + "/" + p.grid.levels + " slots" + (p.grid.halted ? " (halted)" : ""), undefined, p.grid.lastPrice, undefined, "");
+  }
+  if (p.perp) {
+    if (p.perp.pnlUsd) unrealUsd += p.perp.pnlUsd;
+    add("Perp" + (p.perp.paper ? " (paper)" : ""), p.perp.asset + " " + p.perp.side + " $" + fmt(p.perp.sizeUsd, 2) + " " + p.perp.leverage + "x, SL " + fmt(p.perp.stopLossPrice, 4), p.perp.entryPrice, p.perp.markPrice, p.perp.pnlUsd, "USD");
+  }
+  if (table.children.length === 1) box.append(el("div", { class: "muted" }, "No open positions."));
+  else box.append(table);
+  kv($("pnlKv"), [
+    ["Realized (spot)", fmt(s.realized.sol, 6) + " SOL", signed(s.realized.sol)],
+    ["Realized (perps)", fmt(s.realized.usd, 2) + " USD", signed(s.realized.usd)],
+    ["Unrealized (spot)", fmt(unrealSol, 6) + " SOL", signed(unrealSol)],
+    ["Unrealized (perps)", fmt(unrealUsd, 2) + " USD", signed(unrealUsd)],
+  ]);
+}
+
+function renderTrades(rows) {
+  const tb = $("trades").querySelector("tbody");
+  tb.replaceChildren();
+  if (!rows.length) {
+    const tr = el("tr"); const td = el("td", { colspan: "12", class: "muted" }, "No trades yet."); tr.append(td); tb.append(tr); return;
+  }
+  for (const t of rows) {
+    const tr = el("tr");
+    tr.append(el("td", {}, t.ts.replace("T", " ").slice(0, 19)), el("td", {}, t.mode), el("td", {}, t.market), el("td", {}, t.strategy),
+      el("td", {}, t.action), el("td", {}, t.side), el("td", {}, t.instrument.length > 16 ? t.instrument.slice(0, 8) + "..." : t.instrument),
+      el("td", { class: "num" }, fmt(t.price, 6)), el("td", {}, t.size),
+      el("td", { class: "num " + signed(t.pnl || 0) }, t.pnl === undefined ? "-" : fmt(t.pnl, 4) + " " + (t.pnlUnit || "")),
+      el("td", {}, t.reason));
+    const td = el("td");
+    if (t.signature) {
+      const a = el("a", { href: "https://solscan.io/tx/" + encodeURIComponent(t.signature), target: "_blank", rel: "noopener noreferrer" }, t.signature.slice(0, 8) + "...");
+      a.style.color = "var(--blue)";
+      td.append(a);
+    } else td.textContent = "-";
+    tr.append(td);
+    tb.append(tr);
+  }
+}
+
+const GROUPS = [
+  ["General", (p) => !p.includes(".")],
+  ["Spot", (p) => p.startsWith("spot.")],
+  ["Perps", (p) => p.startsWith("perps.")],
+  ["Risk", (p) => p.startsWith("risk.")],
+];
+function buildForm(strategy) {
+  const form = $("stratForm");
+  form.replaceChildren();
+  const get = (path) => path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), strategy);
+  const addField = (parent, spec) => {
+    const row = el("div", { class: "field" });
+    const id = "f_" + spec.path.replace(/\./g, "_");
+    row.append(el("label", { for: id, title: spec.help || spec.path }, spec.label));
+    let input;
+    const value = get(spec.path);
+    if (spec.type === "select" || spec.type === "boolean") {
+      input = el("select", { id, name: spec.path });
+      const opts = spec.type === "boolean" ? ["true", "false"] : spec.options;
+      for (const o of opts) {
+        const op = el("option", { value: o }, o);
+        if (String(value) === o) op.selected = true;
+        input.append(op);
+      }
+    } else {
+      input = el("input", { id, name: spec.path, type: spec.type === "number" ? "number" : "text" });
+      if (spec.min !== undefined) input.min = spec.min;
+      if (spec.max !== undefined) input.max = spec.max;
+      input.step = spec.step !== undefined ? spec.step : spec.integer ? 1 : "any";
+      input.value = value === undefined ? "" : String(value);
+    }
+    input.dataset.type = spec.type;
+    row.append(input);
+    parent.append(row);
+  };
+  for (const [name, test] of GROUPS) {
+    const fs = el("fieldset"); fs.append(el("legend", {}, name));
+    specs.filter((s) => test(s.path)).forEach((s) => addField(fs, s));
+    form.append(fs);
+  }
+  const paramsBox = el("fieldset", { id: "paramsBox" });
+  paramsBox.append(el("legend", {}, "Strategy parameters"));
+  specs.filter((s) => s.path.startsWith("params.")).forEach((s) => addField(paramsBox, s));
+  form.append(paramsBox);
+  const showParams = () => {
+    const name = form.elements["strategy"].value;
+    for (const row of paramsBox.querySelectorAll(".field")) {
+      const input = row.querySelector("input,select");
+      row.hidden = !input.name.startsWith("params." + name + ".");
+    }
+  };
+  form.elements["strategy"].addEventListener("change", showParams);
+  showParams();
+}
+function readForm() {
+  const out = {};
+  for (const input of $("stratForm").querySelectorAll("input,select")) {
+    const keys = input.name.split(".");
+    let o = out;
+    keys.slice(0, -1).forEach((k) => (o = o[k] = o[k] || {}));
+    let v = input.value;
+    if (input.dataset.type === "number") v = v === "" ? undefined : Number(v);
+    if (input.dataset.type === "boolean") v = v === "true";
+    o[keys[keys.length - 1]] = v;
+  }
+  return out;
+}
+
+async function refresh() {
+  try {
+    renderStatus(await api("GET", "/api/status"));
+    renderTrades(await api("GET", "/api/trades?limit=100"));
+  } catch (e) {
+    $("updated").textContent = "refresh failed: " + e.message;
+  }
+}
+
+async function control(path, confirmText) {
+  if (confirmText && !confirm(confirmText)) return;
+  try {
+    const r = await api("POST", path);
+    const status = r.status || r;
+    renderStatus(status);
+    setMsg("ctlMsg", r.closed ? "Kill switch done. Closed: " + (r.closed.join(", ") || "nothing") + (r.errors.length ? "\nErrors: " + r.errors.join("\n") : "") : "OK", !(r.errors && r.errors.length));
+  } catch (e) { setMsg("ctlMsg", e.message, false); }
+}
+
+function metricRow(name, m) {
+  const tr = el("tr");
+  tr.append(el("td", {}, name));
+  [[m.totalReturnPct, 1], [m.maxDdPct, 1], [m.sharpe, 2], [m.winRatePct, 0], [m.trades, 0], [m.profitFactor, 2], [m.exposurePct, 0]].forEach(([v, d], i) =>
+    tr.append(el("td", { class: "num " + (i === 0 ? signed(v) : "") }, fmt(v, d))));
+  return tr;
+}
+function renderBacktest(r) {
+  const box = $("btResult");
+  box.replaceChildren();
+  box.append(el("div", { class: "muted" }, r.symbol + " " + r.interval + ", " + r.from + " to " + r.to + " (" + r.candles + " candles), costs: " + r.costs));
+  const t = el("table");
+  const h = el("tr");
+  ["Window / strategy", "Ret%", "MaxDD%", "Sharpe", "Win%", "Trades", "PF", "Expo%"].forEach((x, i) => h.append(el("th", i ? { class: "num" } : {}, x)));
+  t.append(h);
+  t.append(metricRow("Full: strategy", r.full.strategy), metricRow("Full: buy and hold", r.full.buyHold));
+  t.append(metricRow("Last 30% (" + r.outOfSample.from + "): strategy", r.outOfSample.strategy), metricRow("Last 30%: buy and hold", r.outOfSample.buyHold));
+  box.append(t);
+  box.append(el("div", { class: "muted", style: "margin-top:6px" }, r.note));
+}
+
+$("btnStart").onclick = () => control("/api/start", lastStatus && lastStatus.mode === "live" ? "LIVE mode: this trades real funds. Start?" : null);
+$("btnStop").onclick = () => control("/api/stop");
+$("btnKill").onclick = () => control("/api/kill", "Kill switch: stop the bot and close ALL open positions" + (lastStatus && lastStatus.mode === "live" ? " with REAL transactions" : " (paper)") + ". Continue?");
+$("btnReset").onclick = () => control("/api/kill/reset");
+$("btnValidate").onclick = async () => {
+  try { await api("POST", "/api/strategy/validate", readForm()); setMsg("stratMsg", "Valid.", true); }
+  catch (e) { setMsg("stratMsg", e.message, false); }
+};
+$("btnSave").onclick = async () => {
+  try { await api("PUT", "/api/strategy", readForm()); setMsg("stratMsg", "Saved. It applies the next time the bot starts.", true); }
+  catch (e) { setMsg("stratMsg", e.message, false); }
+};
+$("btnBacktest").onclick = async () => {
+  const s = readForm();
+  const f = $("btForm").elements;
+  const body = { strategy: s.strategy, params: s.params[s.strategy] || {}, symbol: f.symbol.value.trim().toUpperCase(), interval: f.interval.value, days: Number(f.days.value), allowShort: f.allowShort.value === "true" };
+  $("btnBacktest").disabled = true;
+  setMsg("btMsg", "Running " + body.strategy + " on " + body.symbol + "...", true);
+  try { renderBacktest(await api("POST", "/api/backtest", body)); setMsg("btMsg", "", true); }
+  catch (e) { setMsg("btMsg", e.message, false); }
+  finally { $("btnBacktest").disabled = false; }
+};
+
+(async () => {
+  try {
+    const r = await api("GET", "/api/strategy");
+    specs = r.specs; caps = r.caps;
+    buildForm(r.strategy);
+    $("capsInfo").textContent = "caps: leverage <= " + caps.maxLeverage + "x, perp collateral <= $" + caps.maxPerpCollateralUsd;
+    if (r.error) setMsg("stratMsg", "strategy.json problem, showing defaults:\n" + r.error, false);
+  } catch (e) { setMsg("stratMsg", e.message, false); }
+  try { $("summary").textContent = await api("GET", "/api/backtest/summary"); } catch (e) { $("summary").textContent = e.message; }
+  refresh();
+  setInterval(refresh, 5000);
+})();
+</script>
+</body>
+</html>
