@@ -83,7 +83,7 @@ See `.env.example` for the full list and `strategy.example.json` for the JSON fo
 3. Set `KEYPAIR_PATH`, then `DRY_RUN=false`. Start with a tiny `MAX_POSITION_SOL`.
 4. A first buy needs more SOL than the swap amount. A token account costs about 0.00204 SOL in rent, and Jupiter briefly creates a wrapped-SOL account that also needs rent up front (refunded in the same transaction). Plus the network fee, priority fee and Jito tip. The bot checks this before sending and refuses when the balance is too low.
 
-The live path builds transactions that pass RPC simulation, but you are responsible for testing it with small amounts before trusting it.
+The live path has been tested live on mainnet. You are responsible for testing it with small amounts before trusting it.
 
 ## Safety
 
@@ -105,6 +105,20 @@ src/state.ts     position file
 src/bot.ts       polling loop
 src/swap.ts      one-shot swap CLI
 ```
+
+## Mainnet live test (2026-11-27)
+
+Round trip SOL -> JUP -> SOL with `npm run swap`, sent through the Jito Tokyo block engine with a tip instruction, from a small burner wallet. All transactions finalized with no errors.
+
+| Step | Details | Transaction |
+|---|---|---|
+| Buy | 0.0005 SOL -> 0.148585 JUP (quote 0.148607) | [52SN6kKu...](https://solscan.io/tx/52SN6kKus6TW6HC4TjgeFw6srBMri2b3NYHH6fu6aBL9ej23fogpmmc8h1792P5nPJXbJUCQs13FKgvnB6JUKTP1) |
+| Sell | 0.148585 JUP -> ~0.0004998 SOL | [4m1wQrZu...](https://solscan.io/tx/4m1wQrZu8p94kfx2KqwHkPVYSqWZ17JB6eDspkuGJ33VYZLZCpxyEeiu8E7VnygpUpirXdoMMbYMQAuJmHgkfaBU) |
+| Cleanup | Close empty JUP token account, rent recovered | [eire2uc2...](https://solscan.io/tx/eire2uc2zzdVn3PfP8A1C7UzoU3j5cRVFydQn8293ytjZSTGCAJiWj3MU2bDVa5m5CTyMTZtRLxfNuapKsSJpNk) |
+
+Net cost of the full round trip: 0.000056249 SOL (Jito tips, priority fees, network fees and slippage).
+
+Wallet: https://solscan.io/account/6Vpc8MS89KkXBjgHipwsMkzXy1zy76BpXBahWjuF58LB
 
 ## License
 
